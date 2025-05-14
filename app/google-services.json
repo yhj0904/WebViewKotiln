@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "35930284796",
+    "project_id": "nbizframemoilewebviewkotiln",
+    "storage_bucket": "nbizframemoilewebviewkotiln.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:35930284796:android:2edf10650ea4161e8aed79",
+        "android_client_info": {
+          "package_name": "com.nanwe.nbizframemobile_webview_kotiln"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBe4FS6weRLSzL-6T5MPhC3V8Z9SpJvz6M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
