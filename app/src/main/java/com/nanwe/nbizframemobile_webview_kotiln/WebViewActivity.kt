@@ -2,14 +2,21 @@ package com.nanwe.nbizframemobile_webview_kotiln
 
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.webkit.*
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.google.firebase.messaging.FirebaseMessaging
+import com.nanwe.nbizframemobile_webview_kotiln.api.RetrofitClient
+import com.nanwe.nbizframemobile_webview_kotiln.model.AuthRequest
+import com.nanwe.nbizframemobile_webview_kotiln.model.TokenRequest
 import kotlinx.coroutines.launch
 
 class WebViewActivity : AppCompatActivity() {
@@ -26,41 +33,63 @@ class WebViewActivity : AppCompatActivity() {
         setContentView(R.layout.activity_web_view)
 
         val initNoticeNo = intent?.getStringExtra("initNoticeNo").orEmpty()
-        val targetUrl = if (initNoticeNo.isNotEmpty()) {
-            "${AppConstants.APP_URL}/noticeView.do?noticeNo=$initNoticeNo"
-        } else {
-            AppConstants.APP_URL
-        }
+        val targetUrl = if (initNoticeNo.isNotEmpty())
+            "${AppConstants.APP_URL}/noticeView.do?noticeNo=$initNoticeNo" else AppConstants.APP_URL
 
-        fetchFirebaseToken()
-        setupWebView(targetUrl)
+        loginWithJwt {
+            registerFcmToken { setupWebView(targetUrl) }
+        }
     }
 
-    private fun fetchFirebaseToken() {
-        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
-            if (task.isSuccessful) {
-                val token = task.result ?: return@addOnCompleteListener
-                Log.d(TAG, "FCM Token: $token")
-                AppPreferenceManager.setString("token", token)
-
-                val userId = AppPreferenceManager.getString("userId")
-
-                lifecycleScope.launch {
-                    PushTokenManager.sendToken(
-                        applicationContext,
-                        AppConstants.PUSH_SAVE_TOKEN_URL,
-                        token,
-                        userId
-                    )
+    /* ---------------- JWT 로그인 → access 헤더 추출 ----------------*/
+    private fun loginWithJwt(onSuccess: () -> Unit) {
+        lifecycleScope.launch {
+            try {
+                val res = RetrofitClient.auth.login(AuthRequest("nauri", "1234"))
+                if (res.isSuccessful) {
+                    val accessToken = res.headers()["access"] ?: ""
+                    getSecurePrefs().edit().putString("accessToken", accessToken).apply()
+                    onSuccess()
+                } else {
+                    Log.e(TAG, "JWT 로그인 실패: ${res.code()}")
                 }
-            } else {
-                Log.e(TAG, "FCM Token fetch failed: ${task.exception}")
+            } catch (e: Exception) {
+                Log.e(TAG, "JWT 로그인 오류: ${e.localizedMessage}")
             }
         }
     }
 
+    /* ---------------- FCM 토큰 서버 등록 ----------------*/
+    private fun registerFcmToken(onSuccess: () -> Unit) {
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            if (!task.isSuccessful) {
+                Log.e(TAG, "FCM 토큰 취득 실패", task.exception)
+                return@addOnCompleteListener
+            }
+            val fcm = task.result ?: return@addOnCompleteListener
+            AppPreferenceManager.setString("token", fcm)
 
-    @Suppress("SetJavaScriptEnabled")
+            val raw = getSecurePrefs().getString("accessToken", "") ?: ""
+            val bearer = if (raw.isNotEmpty()) "Bearer $raw" else null
+
+            val req = TokenRequest(
+                appId = AppConstants.APP_ID,
+                userId = "nauri", //AppPreferenceManager.getString("userId")
+                deviceId = "ANDROID",
+                fcmToken = fcm
+            )
+            lifecycleScope.launch {
+                try {
+                    val r = RetrofitClient.push.registerToken(bearer, req)
+                    if (r.isSuccessful) Log.d(TAG, "FCM 토큰 등록 성공")
+                    else Log.e(TAG, "FCM 토큰 등록 실패: ${r.code()}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "등록 오류", e)
+                } finally { onSuccess() }
+            }
+        }
+    }
+
     private fun setupWebView(url: String) {
         webView = findViewById(R.id.webView)
 
@@ -75,13 +104,16 @@ class WebViewActivity : AppCompatActivity() {
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                url ?: return false
-                return if (url.startsWith("tel:")) {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                    true
-                } else {
-                    view?.loadUrl(url)
-                    true
+                return when {
+                    url.isNullOrBlank() -> false
+                    url.startsWith("tel:") -> {
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        true
+                    }
+                    else -> {
+                        view?.loadUrl(url)
+                        true
+                    }
                 }
             }
         }
@@ -114,7 +146,6 @@ class WebViewActivity : AppCompatActivity() {
         }
     }
 
-    @Suppress("DEPRECATION")
     override fun onBackPressed() {
         val now = System.currentTimeMillis()
         if (now > backKeyPressedTime + 2000) {
@@ -123,7 +154,30 @@ class WebViewActivity : AppCompatActivity() {
             toast?.show()
         } else {
             toast?.cancel()
-            finish()
+            super.onBackPressed()
         }
+    }
+
+    private fun saveTokens(response: retrofit2.Response<*>) {
+        val accessToken = response.headers()["access"] ?: ""
+        val refreshToken = response.headers()["Set-Cookie"]
+            ?.substringAfter("refreshToken=")
+            ?.substringBefore(";") ?: ""
+
+        val prefs = getSecurePrefs()
+        prefs.edit().apply {
+            putString("accessToken", accessToken)
+            putString("refreshToken", refreshToken)
+            apply()
+        }
+    }
+
+    private fun getSecurePrefs(): SharedPreferences {
+        val mk = MasterKey.Builder(this).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
+        return EncryptedSharedPreferences.create(
+            this, "secure_prefs", mk,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
     }
 }

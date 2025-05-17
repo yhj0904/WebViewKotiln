@@ -13,10 +13,15 @@ import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.nanwe.nbizframemobile_webview_kotiln.api.RetrofitClient
+import com.nanwe.nbizframemobile_webview_kotiln.model.TokenRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -33,12 +38,38 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         super.onNewToken(token)
         Log.d(TAG, "Refreshed token: $token")
 
-        // userId는 로그인 시 저장되어 있어야 함
         val userId = AppPreferenceManager.getString("userId")
+        val deviceId = "ANDROID"
+
+        val authHeader = getBearerHeader()
 
         CoroutineScope(Dispatchers.IO).launch {
-            PushTokenManager.sendToken(applicationContext, AppConstants.PUSH_SAVE_TOKEN_URL, token, userId)
+            try {
+                val response = RetrofitClient.push.registerToken(
+                    authHeader,
+                    TokenRequest(AppConstants.APP_ID, userId, deviceId, token)
+                )
+                if (response.isSuccessful) {
+                    Log.d(TAG, "토큰 등록 성공 (FCM)")
+                } else {
+                    Log.e(TAG, "토큰 등록 실패: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Retrofit 오류: ${e.localizedMessage}")
+            }
         }
+    }
+    private fun getBearerHeader(): String? {
+        val masterKey = MasterKey.Builder(this).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
+        val prefs = EncryptedSharedPreferences.create(
+            this,
+            "secure_prefs",
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+        val token = prefs.getString("accessToken", "") ?: ""
+        return if (token.isNotEmpty()) "Bearer $token" else null
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {

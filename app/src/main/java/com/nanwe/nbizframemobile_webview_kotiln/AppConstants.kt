@@ -4,15 +4,15 @@ object AppConstants {
 
     const val APP_ID = "MOBILE"
 
-    const val PUSH_SAVE_TOKEN_URL = "http://192.168.10.94:9090/push/api/saveToken.do"
-    const val PUSH_REMOVE_TOKEN_URL = "http://192.168.10.94:9090/push/api/removeToken.do"
+    const val PUSH_SAVE_TOKEN_URL = "http://192.168.10.54:8080/api/token/register"
+    const val PUSH_REMOVE_TOKEN_URL = "http://192.168.10.54:8080/api/token/delete"
 
     const val PUSH_CHANNEL_ID = "알림"
     const val PUSH_CHANNEL_NM = "NBizFrameMobile 알림"
     const val PUSH_CHANNEL_DES = "NBizFrameMobile 알림 서비스 입니다"
 
     // const val APP_URL = "http://59.1.135.4:19084"
-    const val APP_URL = "http://192.168.10.94:9090/login.do"
+    const val APP_URL = "http://192.168.10.54:8080/swagger-ui/index.html"
 
     // nexacro 이벤트 속성명
     const val UID = "uid"

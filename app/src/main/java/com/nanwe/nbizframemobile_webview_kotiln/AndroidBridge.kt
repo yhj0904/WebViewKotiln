@@ -3,9 +3,14 @@ package com.nanwe.nbizframemobile_webview_kotiln
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+import com.nanwe.nbizframemobile_webview_kotiln.api.RetrofitClient
+import com.nanwe.nbizframemobile_webview_kotiln.model.TokenRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -15,6 +20,19 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
 
     private val handler = Handler(Looper.getMainLooper())
     private val TAG = "AndroidBridge"
+
+    private fun accessHeader(): String? {
+        val masterKey = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
+        val prefs = EncryptedSharedPreferences.create(
+            context,
+            "secure_prefs",
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+        val token = prefs.getString("accessToken", "") ?: ""
+        return if (token.isNotEmpty()) "Bearer $token" else null
+    }
 
     @JavascriptInterface
     fun callMethod(uid: String, svcid: String, paramString: String?) {
@@ -30,14 +48,20 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
             }
 
             "LOGIN" -> {
-                val userId = param.optString("userId")
+                val userId = "nauri" // 임시 AppPreferenceManager.getString("userId")
                 val token = AppPreferenceManager.getString("token")
-                Log.d(TAG, "userId : $userId")
-                Log.d(TAG, "token : $token")
+                val deviceId = "ANDROID"
 
                 if (userId.isNotEmpty() && token.isNotEmpty()) {
                     CoroutineScope(Dispatchers.IO).launch {
-                        PushTokenManager.sendToken(context, AppConstants.PUSH_SAVE_TOKEN_URL, token, userId)
+                        try {
+                            RetrofitClient.push.registerToken(
+                                accessHeader(),
+                                TokenRequest(AppConstants.APP_ID, userId, deviceId, token)
+                            )
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Retrofit 오류: ${e.localizedMessage}")
+                        }
                     }
                     send(uid, svcid, AppConstants.CODE_SUCCESS, "LOGIN SUCCESS")
                 } else {
@@ -49,20 +73,26 @@ class AndroidBridge(private val context: Context, private val webView: WebView) 
                 AppPreferenceManager.removeKey("accessToken")
                 AppPreferenceManager.removeKey("refreshToken")
 
-                val userId = param.optString("userId")
+                val userId = "nauri" // or param.optString("userId")
                 val token = AppPreferenceManager.getString("token")
-                Log.d(TAG, "userId : $userId")
-                Log.d(TAG, "token : $token")
+                val deviceId = "ANDROID"
 
                 if (userId.isNotEmpty()) {
                     CoroutineScope(Dispatchers.IO).launch {
-                        PushTokenManager.sendToken(context, AppConstants.PUSH_REMOVE_TOKEN_URL, token, userId)
+                        try {
+                            RetrofitClient.push.deleteToken(accessHeader(),
+                                TokenRequest(AppConstants.APP_ID, userId, deviceId, token)
+                            )
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Retrofit 오류: ${e.localizedMessage}")
+                        }
                     }
                     send(uid, svcid, AppConstants.CODE_SUCCESS, "LOGOUT SUCCESS")
                 } else {
                     send(uid, svcid, AppConstants.CODE_ERROR, "parameter null")
                 }
             }
+
 
             "SET_ACCESS_TOKEN" -> {
                 val accessToken = param.optString("accessToken")
