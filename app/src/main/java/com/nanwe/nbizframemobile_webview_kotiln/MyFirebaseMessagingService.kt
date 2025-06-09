@@ -68,7 +68,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
-        val token = prefs.getString("accessToken", "") ?: ""
+        val token = prefs.getString("access", "") ?: ""
         return if (token.isNotEmpty()) "Bearer $token" else null
     }
 
