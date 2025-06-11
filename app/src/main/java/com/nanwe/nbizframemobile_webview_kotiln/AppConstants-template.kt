@@ -1,6 +1,6 @@
 package com.nanwe.nbizframemobile_webview_kotiln
 
-object AppConstants {
+object AppConstantsTemplate {
 
     const val APP_ID = "MOBILE"
 
